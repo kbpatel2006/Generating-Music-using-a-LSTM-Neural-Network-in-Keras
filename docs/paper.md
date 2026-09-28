@@ -17,10 +17,14 @@ The first stage of this implementation focuses on converting MIDI performances i
 
 Recurrent neural networks are designed for sequential data. Unlike a standard feedforward neural network, an RNN maintains a hidden state that carries information from previous timesteps. At each timestep, the network processes both the current input and information from the previous hidden state.
 
-For a sequence \(x_1, x_2, \ldots, x_t\), the hidden state can be expressed conceptually as:
-\[
+For a sequence $(x_1, x_2, \dots, x_t)$, the hidden state can be expressed conceptually as:
+
+$$
 h_t = f(x_t, h_{t-1})
-\]where \(h_t\) represents the network's internal state at timestep \(t\).
+$$
+
+where $h_t$ represents the network's internal state at timestep $t$.
+
 This makes RNNs suitable for data where ordering matters, including text, time series, speech, and symbolic music.
 
 ### 2.2 LSTM Networks
@@ -35,11 +39,14 @@ In this project, the LSTM receives a sequence of previous musical events and lea
 
 Symbolic music can be modeled as a sequence of discrete events. Instead of processing raw audio waveforms, the system operates on MIDI data, which explicitly represents musical information such as note pitch, timing, and instrument events.
 The current project simplifies the problem by representing the music as a sequence of note and chord tokens. Given a fixed number of previous tokens, the model is trained to predict the next token in the sequence.
+
 The learning task can therefore be written as:
-\[
-P(x_{t+1} \mid x_{t-L+1}, \ldots, x_t)
-\]where \(L\) is the sequence length used as input.
-In the current implementation, \(L = 100\).
+
+$$
+P(x_{t+1} \mid x_{t-L+1}, \dots, x_t)
+$$
+
+where $L$ is the sequence length used as input. In the current implementation, $L = 100$.
 
 ### 2.4 The Original 2017 Implementation
 
