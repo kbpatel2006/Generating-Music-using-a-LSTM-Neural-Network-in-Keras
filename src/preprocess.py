@@ -39,16 +39,25 @@ print(notes[:20])
 
 print(f"\nTotal notes/chords: {len(notes)}")
 
-from dataset import build_vocabulary
+from dataset import build_vocabulary, create_sequences, prepare_sequences
 
 
 pitchnames, note_to_int = build_vocabulary(notes)
+n_vocab = len(pitchnames)
 
 print(f"Unique notes/chords: {len(pitchnames)}")
 
-print("\nFirst 20 vocabulary items:")
-print(pitchnames[:20])
+network_input, network_output = create_sequences(notes, note_to_int, sequence_length=100)
+network_input, network_output = prepare_sequences(network_input, network_output, n_vocab)
 
-print("\nExample mappings:")
-for note_name in pitchnames[:10]:
-    print(f"{note_name} -> {note_to_int[note_name]}")
+print("\nPrepared input shape:")
+print(network_input.shape)
+
+print("\nPrepared output shape:")
+print(network_output.shape)
+
+print(f"\nTotal sequences: {len(network_input)}")
+print("\nFirst input sequence:")
+print(network_input[0][:20])
+print("\nFirst output:")
+print(network_output[0])
