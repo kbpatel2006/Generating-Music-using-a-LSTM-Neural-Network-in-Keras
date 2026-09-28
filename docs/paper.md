@@ -74,8 +74,124 @@ The current preprocessing experiment uses ten MIDI files from the MAESTRO datase
 This limited subset is used only during development. The purpose at this stage is to verify the complete preprocessing pipeline before scaling the experiment to a larger training dataset.
 
 ## 4. Data Preprocessing
+
+The purpose of the preprocessing pipeline is to convert raw MIDI files into numerical training data that can be used by an LSTM network.
+
+The current pipeline performs the following transformations:
+
+MIDI files
+    ↓
+music21 parsing
+    ↓
+note and chord extraction
+    ↓
+categorical token sequence
+    ↓
+vocabulary construction
+    ↓
+integer encoding
+    ↓
+fixed-length sequence generation
+    ↓
+LSTM-compatible tensor reshaping
+    ↓
+input normalization
+    ↓
+one-hot encoded targets
+
 ### 4.1 MIDI Parsing
+
+The first preprocessing step is converting the raw MIDI files into Python objects that can be inspected and processed.
+
+This project uses the `music21` library to parse MIDI files:
+
+```python
+midi = converter.parse(file)
+```
+
+MIDI files contain structured musical information rather than raw audio waveforms. After parsing, music21 represents the contents of the file as Python objects such as notes, chords, instruments, measures, and other musical events.
+
+The dataset is searched recursively so that MIDI files can remain inside the original directory structure:
+
+```python
+midi_files = glob.glob(
+    "data/midi/**/*.midi",
+    recursive=True
+)
+```
+
+During early development, only a small subset of the available MIDI files is processed. This makes the preprocessing pipeline faster to test and easier to debug before scaling to the full dataset.
+
+After loading each MIDI file, the program attempts to separate the performance by instrument:
+
+```python
+parts = instrument.partitionByInstrument(midi)
+```
+
+If instrument parts are available, the first part is traversed recursively. If instrument partitions are not available, the complete MIDI structure is flattened and the note events are extracted.
+
+Conceptually, this stage performs the following transformation:
+
+MIDI file
+    ↓
+music21 object representation
+    ↓
+iterable musical events
+
+At this stage, the musical data has been loaded into Python, but it has not yet been converted into the numerical format required by the neural network.
+
 ### 4.2 Note and Chord Representation
+
+After parsing the MIDI files, the next step is extracting the musical events that will be used as model inputs.
+
+The current implementation keeps individual notes and chords.
+
+Single notes are identified using:
+
+```python
+if isinstance(element, note.Note):
+```
+
+The note pitch is then converted into a string. Example note representations include:
+
+C4
+F#5
+A3
+
+The letter represents the pitch class, while the number represents the octave. Chord objects are handled separately. 
+
+Pitch classes are represented numerically from 0 to 11:
+
+C  = 0
+C# = 1
+D  = 2
+D# = 3
+E  = 4
+F  = 5
+F# = 6
+G  = 7
+G# = 8
+A  = 9
+A# = 10
+B  = 11
+
+After extraction, the music becomes a sequential list of categorical tokens:
+
+```python
+[
+    "C4",
+    "E4",
+    "G4",
+    "0.4.7",
+    "F#5",
+    ...
+]
+```
+
+This step reduces the original MIDI representation into a simpler sequence of musical events that can later be encoded numerically.
+
+The current representation does not explicitly preserve all available MIDI information. Features such as note velocity, note duration, rests, articulation, and detailed rhythmic structure are not yet modeled.
+
 ### 4.3 Vocabulary Construction
 ### 4.4 Integer Encoding
 ### 4.5 Sequence Generation
