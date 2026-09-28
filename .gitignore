@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# macOS
+.DS_Store
+
+# Model files
+*.h5
+*.keras
+
+# Checkpoints
+checkpoints/*
+!checkpoints/.gitkeep
+
+# Generated music
+output/*
+!output/.gitkeep
+
+# Training data
+data/midi/*
+!data/midi/.gitkeep
+
+# Jupyter
+.ipynb_checkpoints/
