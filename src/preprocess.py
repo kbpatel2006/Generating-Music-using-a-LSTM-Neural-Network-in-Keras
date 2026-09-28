@@ -38,3 +38,17 @@ print("\nFirst 20 notes/chords:")
 print(notes[:20])
 
 print(f"\nTotal notes/chords: {len(notes)}")
+
+from dataset import build_vocabulary
+
+
+pitchnames, note_to_int = build_vocabulary(notes)
+
+print(f"Unique notes/chords: {len(pitchnames)}")
+
+print("\nFirst 20 vocabulary items:")
+print(pitchnames[:20])
+
+print("\nExample mappings:")
+for note_name in pitchnames[:10]:
+    print(f"{note_name} -> {note_to_int[note_name]}")
