@@ -17,7 +17,8 @@ from preprocess import get_pieces
 from dataset import (
     build_vocabulary,
     create_sequences,
-    prepare_sequences
+    prepare_sequences,
+    split_pieces
 )
 
 from model import create_model
@@ -26,6 +27,8 @@ from model import create_model
 DEFAULT_SEQUENCE_LENGTH = 100
 DEFAULT_EPOCHS = 50
 DEFAULT_BATCH_SIZE = 64
+DEFAULT_VALIDATION_FRACTION = 0.20
+DEFAULT_RANDOM_SEED = 42
 
 
 def configure_gpu():
@@ -37,6 +40,7 @@ def configure_gpu():
         print(
             "WARNING: No GPU detected"
         )
+
         return
 
     print(
@@ -49,6 +53,7 @@ def configure_gpu():
                 gpu,
                 True
             )
+
         except RuntimeError:
             pass
 
@@ -80,8 +85,11 @@ def save_vocabulary(
 def save_training_config(
     args,
     n_vocab,
-    number_of_pieces,
-    number_of_sequences
+    total_pieces,
+    training_pieces,
+    validation_pieces,
+    training_sequences,
+    validation_sequences
 ):
     config = {
         "sequence_length":
@@ -93,11 +101,26 @@ def save_training_config(
         "midi_limit":
             args.midi_limit,
 
-        "number_of_pieces":
-            number_of_pieces,
+        "total_pieces":
+            total_pieces,
 
-        "number_of_sequences":
-            number_of_sequences,
+        "training_pieces":
+            training_pieces,
+
+        "validation_pieces":
+            validation_pieces,
+
+        "training_sequences":
+            training_sequences,
+
+        "validation_sequences":
+            validation_sequences,
+
+        "validation_fraction":
+            args.validation_fraction,
+
+        "random_seed":
+            args.seed,
 
         "batch_size":
             args.batch_size,
@@ -106,7 +129,16 @@ def save_training_config(
             args.epochs,
 
         "piece_boundaries_preserved":
-            True
+            True,
+
+        "split_by_piece":
+            True,
+
+        "target_encoding":
+            "sparse_integer",
+
+        "loss":
+            "sparse_categorical_crossentropy"
     }
 
     path = os.path.join(
@@ -125,8 +157,7 @@ def save_training_config(
         )
 
     print(
-        f"Saved training config "
-        f"to {path}"
+        f"Saved training config to {path}"
     )
 
 
@@ -163,9 +194,38 @@ def train(args):
     )
 
     print(
+        "\nSplitting pieces..."
+    )
+
+    (
+        train_pieces,
+        validation_pieces
+    ) = split_pieces(
+        pieces,
+        validation_fraction=
+            args.validation_fraction,
+        seed=args.seed
+    )
+
+    print(
+        f"Training pieces: "
+        f"{len(train_pieces)}"
+    )
+
+    print(
+        f"Validation pieces: "
+        f"{len(validation_pieces)}"
+    )
+
+    print(
         "\nBuilding vocabulary..."
     )
 
+    # Baseline design:
+    # vocabulary is built from all selected pieces.
+    #
+    # This avoids unknown validation tokens while the
+    # project reproduces the original categorical setup.
     pitchnames, note_to_int = (
         build_vocabulary(
             pieces
@@ -177,8 +237,7 @@ def train(args):
     )
 
     print(
-        f"Vocabulary size: "
-        f"{n_vocab}"
+        f"Vocabulary size: {n_vocab}"
     )
 
     save_vocabulary(
@@ -187,69 +246,135 @@ def train(args):
     )
 
     print(
-        "\nCreating sequences..."
+        "\nCreating training sequences..."
     )
 
-    network_input, network_output = (
-        create_sequences(
-            pieces,
-            note_to_int,
-            sequence_length=
-                args.sequence_length
-        )
-    )
-
-    n_sequences = len(
-        network_input
+    (
+        train_input,
+        train_output
+    ) = create_sequences(
+        train_pieces,
+        note_to_int,
+        sequence_length=
+            args.sequence_length
     )
 
     print(
-        f"Sequences: {n_sequences}"
+        f"Training sequences: "
+        f"{len(train_input)}"
     )
 
-    if n_sequences == 0:
+    print(
+        "\nCreating validation sequences..."
+    )
+
+    (
+        validation_input,
+        validation_output
+    ) = create_sequences(
+        validation_pieces,
+        note_to_int,
+        sequence_length=
+            args.sequence_length
+    )
+
+    print(
+        f"Validation sequences: "
+        f"{len(validation_input)}"
+    )
+
+    if not train_input:
         raise ValueError(
-            "No training sequences "
-            "were generated."
+            "No training sequences generated"
+        )
+
+    if not validation_input:
+        raise ValueError(
+            "No validation sequences generated"
         )
 
     save_training_config(
-        args,
-        n_vocab,
-        len(pieces),
-        n_sequences
-    )
-
-    print(
-        "\nPreparing tensors..."
-    )
-
-    network_input, network_output = (
-        prepare_sequences(
-            network_input,
-            network_output,
-            n_vocab
+        args=args,
+        n_vocab=n_vocab,
+        total_pieces=len(pieces),
+        training_pieces=len(
+            train_pieces
+        ),
+        validation_pieces=len(
+            validation_pieces
+        ),
+        training_sequences=len(
+            train_input
+        ),
+        validation_sequences=len(
+            validation_input
         )
     )
 
     print(
-        "Input shape:",
-        network_input.shape
+        "\nPreparing training tensors..."
+    )
+
+    (
+        train_input,
+        train_output
+    ) = prepare_sequences(
+        train_input,
+        train_output,
+        n_vocab
     )
 
     print(
-        "Output shape:",
-        network_output.shape
+        "\nPreparing validation tensors..."
+    )
+
+    (
+        validation_input,
+        validation_output
+    ) = prepare_sequences(
+        validation_input,
+        validation_output,
+        n_vocab
     )
 
     print(
-        "Input dtype:",
-        network_input.dtype
+        "\nTraining input shape:",
+        train_input.shape
     )
 
     print(
-        "Output dtype:",
-        network_output.dtype
+        "Training output shape:",
+        train_output.shape
+    )
+
+    print(
+        "Validation input shape:",
+        validation_input.shape
+    )
+
+    print(
+        "Validation output shape:",
+        validation_output.shape
+    )
+
+    print(
+        "\nTraining input dtype:",
+        train_input.dtype
+    )
+
+    print(
+        "Training output dtype:",
+        train_output.dtype
+    )
+
+    print(
+        "Validation input dtype:",
+        validation_input.dtype
+    )
+
+    print(
+        "Validation output dtype:",
+        validation_output.dtype
     )
 
     print(
@@ -310,11 +435,17 @@ def train(args):
     )
 
     history = model.fit(
-        network_input,
-        network_output,
-        validation_split=0.2,
+        train_input,
+        train_output,
+
+        validation_data=(
+            validation_input,
+            validation_output
+        ),
+
         epochs=args.epochs,
         batch_size=args.batch_size,
+
         callbacks=[
             checkpoint,
             early_stopping,
@@ -322,6 +453,7 @@ def train(args):
             csv_logger,
             backup
         ],
+
         verbose=1
     )
 
@@ -352,7 +484,12 @@ def train(args):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description=(
+            "Train the Colab LSTM "
+            "music-generation model."
+        )
+    )
 
     parser.add_argument(
         "--data-dir",
@@ -388,6 +525,19 @@ def parse_args():
         "--sequence-length",
         type=int,
         default=DEFAULT_SEQUENCE_LENGTH
+    )
+
+    parser.add_argument(
+        "--validation-fraction",
+        type=float,
+        default=
+            DEFAULT_VALIDATION_FRACTION
+    )
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_RANDOM_SEED
     )
 
     return parser.parse_args()

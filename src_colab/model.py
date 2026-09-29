@@ -1,11 +1,11 @@
-from keras.models import Sequential
-
 from keras.layers import (
-    Input,
-    LSTM,
+    Dense,
     Dropout,
-    Dense
+    Input,
+    LSTM
 )
+
+from keras.models import Sequential
 
 
 def create_model(
@@ -16,7 +16,10 @@ def create_model(
 ):
     model = Sequential([
         Input(
-            shape=(sequence_length, 1)
+            shape=(
+                sequence_length,
+                1
+            )
         ),
 
         LSTM(
@@ -50,8 +53,14 @@ def create_model(
 
     model.compile(
         optimizer="adam",
-        loss="categorical_crossentropy",
-        metrics=["accuracy"]
+
+        loss=(
+            "sparse_categorical_crossentropy"
+        ),
+
+        metrics=[
+            "accuracy"
+        ]
     )
 
     return model
@@ -60,7 +69,7 @@ def create_model(
 if __name__ == "__main__":
     model = create_model(
         sequence_length=100,
-        n_vocab=741
+        n_vocab=1102
     )
 
     model.summary()

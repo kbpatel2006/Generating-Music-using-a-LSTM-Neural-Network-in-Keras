@@ -4,10 +4,13 @@ import os
 from music21 import converter, instrument, note, chord
 
 
-def extract_notes_from_midi(file):
+def extract_notes_from_midi(file_path):
+    """
+    Parse one MIDI file and return its sequence of note/chord tokens.
+    """
     notes = []
 
-    midi = converter.parse(file)
+    midi = converter.parse(file_path)
 
     parts = instrument.partitionByInstrument(midi)
 
@@ -37,6 +40,12 @@ def get_pieces(
     data_dir="data/midi",
     limit=None
 ):
+    """
+    Find MIDI files and return each piece as its own token sequence.
+
+    Keeping pieces separate prevents training windows from crossing
+    from the end of one composition into the beginning of another.
+    """
     search_pattern = os.path.join(
         data_dir,
         "**",
@@ -64,17 +73,17 @@ def get_pieces(
 
     pieces = []
 
-    for index, file in enumerate(
+    for index, file_path in enumerate(
         midi_files,
         start=1
     ):
         print(
             f"[{index}/{len(midi_files)}] "
-            f"{os.path.basename(file)}"
+            f"{os.path.basename(file_path)}"
         )
 
         notes = extract_notes_from_midi(
-            file
+            file_path
         )
 
         if notes:
@@ -86,9 +95,8 @@ def get_pieces(
     )
 
     print(
-        f"Extracted {total_events} "
-        f"musical events across "
-        f"{len(pieces)} pieces"
+        f"Extracted {total_events} musical events "
+        f"across {len(pieces)} pieces"
     )
 
     return pieces
@@ -101,14 +109,12 @@ if __name__ == "__main__":
     )
 
     print(
-        f"\nPieces loaded: "
-        f"{len(pieces)}"
+        f"\nPieces loaded: {len(pieces)}"
     )
 
     if pieces:
         print(
-            "\nFirst 20 events "
-            "from first piece:"
+            "\nFirst 20 events from first piece:"
         )
 
         print(
