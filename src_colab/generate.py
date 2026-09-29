@@ -9,35 +9,20 @@ from music21 import chord, converter, note, stream
 
 
 def load_json(path):
-    """Load a JSON file from disk."""
     with open(path, "r") as file:
         return json.load(file)
 
 
 def load_vocabulary(vocabulary_path):
-    """
-    Load the vocabulary saved during training.
-
-    Returns:
-        token_to_int: maps musical token -> integer ID
-        int_to_token: maps integer ID -> musical token
-    """
     vocab_data = load_json(vocabulary_path)
 
-    # Case 1:
-    # vocabulary.json is simply a list:
-    #
-    # ["C4", "D4", "0.4.7", ...]
     if isinstance(vocab_data, list):
         token_to_int = {
             token: index
             for index, token in enumerate(vocab_data)
         }
 
-    # Case 2:
-    # vocabulary.json contains a saved mapping.
     elif isinstance(vocab_data, dict):
-
         if "token_to_int" in vocab_data:
             token_to_int = {
                 token: int(index)
@@ -51,22 +36,13 @@ def load_vocabulary(vocabulary_path):
             }
 
         else:
-            # Assume the dictionary itself is:
-            #
-            # {
-            #     "C4": 0,
-            #     "D4": 1,
-            #     ...
-            # }
             token_to_int = {
                 token: int(index)
                 for token, index in vocab_data.items()
             }
 
     else:
-        raise ValueError(
-            "Unsupported vocabulary.json format."
-        )
+        raise ValueError("Unsupported vocabulary.json format.")
 
     int_to_token = {
         index: token
@@ -77,23 +53,11 @@ def load_vocabulary(vocabulary_path):
 
 
 def extract_events_from_midi(midi_path):
-    """
-    Parse a MIDI file using the same event representation used during training.
-
-    Notes:
-        C4
-        F#5
-
-    Chords:
-        0.4.7
-        2.5.9
-    """
     midi = converter.parse(midi_path)
 
     events = []
 
     for element in midi.flatten().notes:
-
         if isinstance(element, note.Note):
             events.append(str(element.pitch))
 
@@ -102,7 +66,6 @@ def extract_events_from_midi(midi_path):
                 str(pitch_class)
                 for pitch_class in element.normalOrder
             )
-
             events.append(chord_token)
 
     return events
@@ -114,10 +77,6 @@ def find_valid_seed(
     sequence_length,
     random_seed=42,
 ):
-    """
-    Find a contiguous sequence of sequence_length events where every
-    token exists in the training vocabulary.
-    """
     valid_start_positions = []
 
     max_start = len(events) - sequence_length
@@ -130,27 +89,29 @@ def find_valid_seed(
 
     if not valid_start_positions:
         raise ValueError(
-            "Could not find a valid seed sequence in this MIDI file. "
-            "The seed must contain at least "
-            f"{sequence_length} consecutive events from the vocabulary."
+            "Could not find a valid seed sequence."
         )
 
     rng = random.Random(random_seed)
 
     start = rng.choice(valid_start_positions)
 
-    seed_events = events[start:start + sequence_length]
+    seed_events = events[
+        start:start + sequence_length
+    ]
 
-    print(f"Found {len(valid_start_positions)} valid seed windows.")
-    print(f"Selected seed starting at event {start}.")
+    print(
+        f"Found {len(valid_start_positions)} valid seed windows."
+    )
+
+    print(
+        f"Selected seed starting at event {start}."
+    )
 
     return seed_events
 
 
 def events_to_pattern(seed_events, token_to_int):
-    """
-    Convert musical tokens into integer IDs.
-    """
     return [
         token_to_int[event]
         for event in seed_events
@@ -158,15 +119,6 @@ def events_to_pattern(seed_events, token_to_int):
 
 
 def prepare_model_input(pattern, n_vocab):
-    """
-    Convert integer token IDs into the normalized format expected
-    by the LSTM.
-
-    Shape:
-        (100,)
-          ->
-        (1, 100, 1)
-    """
     model_input = np.array(
         pattern,
         dtype=np.float32,
@@ -183,43 +135,113 @@ def prepare_model_input(pattern, n_vocab):
     return model_input
 
 
+def sample_with_temperature(
+    probabilities,
+    temperature,
+    rng,
+):
+    """
+    Sample from the model's probability distribution.
+
+    Lower temperature:
+        more conservative / repetitive
+
+    Higher temperature:
+        more random / diverse
+
+    temperature = 1.0:
+        original model distribution
+    """
+
+    probabilities = np.asarray(
+        probabilities,
+        dtype=np.float64,
+    )
+
+    # Avoid log(0)
+    probabilities = np.clip(
+        probabilities,
+        1e-10,
+        1.0,
+    )
+
+    logits = np.log(probabilities)
+
+    logits = logits / temperature
+
+    logits = logits - np.max(logits)
+
+    adjusted_probabilities = np.exp(logits)
+
+    adjusted_probabilities /= np.sum(
+        adjusted_probabilities
+    )
+
+    return rng.choice(
+        len(adjusted_probabilities),
+        p=adjusted_probabilities,
+    )
+
+
+def choose_next_token(
+    probabilities,
+    strategy,
+    temperature,
+    rng,
+):
+    if strategy == "greedy":
+        return int(
+            np.argmax(probabilities)
+        )
+
+    if strategy == "temperature":
+        return int(
+            sample_with_temperature(
+                probabilities,
+                temperature,
+                rng,
+            )
+        )
+
+    raise ValueError(
+        f"Unknown generation strategy: {strategy}"
+    )
+
+
 def generate_tokens(
     model,
     seed_pattern,
     int_to_token,
     n_vocab,
     num_generate=500,
+    strategy="greedy",
+    temperature=1.0,
+    random_seed=42,
 ):
-    """
-    Generate new musical events autoregressively.
-
-    For each prediction:
-
-    1. normalize current 100-event pattern
-    2. call model.predict()
-    3. select highest-probability token
-    4. append prediction
-    5. remove oldest event
-    6. repeat
-    """
     pattern = list(seed_pattern)
 
     generated_tokens = []
 
-    for step in range(num_generate):
+    rng = np.random.default_rng(
+        random_seed
+    )
 
+    for step in range(num_generate):
         model_input = prepare_model_input(
             pattern,
             n_vocab,
         )
 
-        prediction = model.predict(
+        probabilities = model.predict(
             model_input,
             verbose=0,
         )[0]
 
-        prediction_index = int(
-            np.argmax(prediction)
+        prediction_index = choose_next_token(
+            probabilities=probabilities,
+            strategy=strategy,
+            temperature=temperature,
+            rng=rng,
         )
 
         predicted_token = int_to_token[
@@ -230,41 +252,32 @@ def generate_tokens(
             predicted_token
         )
 
-        # Slide the sequence window forward.
-        pattern.append(prediction_index)
+        pattern.append(
+            prediction_index
+        )
+
         pattern = pattern[1:]
 
         if (step + 1) % 50 == 0:
+            unique_count = len(
+                set(generated_tokens)
+            )
+
             print(
-                f"Generated {step + 1}/{num_generate} events"
+                f"Generated {step + 1}/{num_generate} events "
+                f"| unique tokens: {unique_count}"
             )
 
     return generated_tokens
 
 
 def token_to_music21(token, duration=0.5):
-    """
-    Convert one predicted token back into a music21 object.
-
-    Notes:
-        "C4" -> music21.note.Note
-
-    Chords:
-        "0.4.7" -> music21.chord.Chord
-
-    The chord representation only contains pitch classes, so octave
-    information must be reconstructed. Here, pitch classes are placed
-    around MIDI octave 4 using MIDI pitches 60-71.
-    """
-
-    # Chord token
     if "." in token:
         pitch_classes = [
             int(value)
             for value in token.split(".")
         ]
 
-        # Place pitch classes beginning at middle C (MIDI 60).
         midi_pitches = [
             60 + pitch_class
             for pitch_class in pitch_classes
@@ -274,7 +287,6 @@ def token_to_music21(token, duration=0.5):
             midi_pitches
         )
 
-    # Note token
     else:
         musical_object = note.Note(
             token
@@ -290,13 +302,6 @@ def write_midi(
     output_path,
     duration=0.5,
 ):
-    """
-    Convert generated tokens into a MIDI file.
-
-    Because the training representation does not currently store
-    duration information, each generated event receives the same
-    duration.
-    """
     output_stream = stream.Stream()
 
     for token in generated_tokens:
@@ -316,11 +321,6 @@ def write_midi(
 
 
 def get_sequence_length(training_config):
-    """
-    Retrieve sequence length from training_config.json.
-
-    Falls back to 100 because that is the current experiment setting.
-    """
     possible_keys = [
         "sequence_length",
         "sequence_len",
@@ -332,7 +332,7 @@ def get_sequence_length(training_config):
             return int(training_config[key])
 
     print(
-        "Warning: sequence length not found in training_config.json. "
+        "Warning: sequence length not found in config. "
         "Using 100."
     )
 
@@ -341,54 +341,70 @@ def get_sequence_length(training_config):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate MIDI music using the trained LSTM model."
+        description="Generate MIDI music using a trained LSTM."
     )
 
     parser.add_argument(
         "--model",
         required=True,
-        help="Path to best_model.keras",
     )
 
     parser.add_argument(
         "--vocabulary",
         required=True,
-        help="Path to vocabulary.json",
     )
 
     parser.add_argument(
         "--config",
         required=True,
-        help="Path to training_config.json",
     )
 
     parser.add_argument(
         "--seed-midi",
         required=True,
-        help="MIDI file used to obtain the initial 100-event seed.",
     )
 
     parser.add_argument(
         "--output",
         default="generated_music.mid",
-        help="Output MIDI path.",
     )
 
     parser.add_argument(
         "--num-events",
         type=int,
         default=500,
-        help="Number of musical events to generate.",
+    )
+
+    parser.add_argument(
+        "--strategy",
+        choices=[
+            "greedy",
+            "temperature",
+        ],
+        default="greedy",
+    )
+
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
     )
 
     parser.add_argument(
         "--random-seed",
         type=int,
         default=42,
-        help="Random seed used when choosing the seed window.",
     )
 
     args = parser.parse_args()
+
+    if (
+        args.strategy == "temperature"
+        and args.temperature <= 0
+    ):
+        raise ValueError(
+            "Temperature must be greater than 0."
+        )
 
     model_path = Path(args.model)
     vocabulary_path = Path(args.vocabulary)
@@ -397,6 +413,7 @@ def main():
     output_path = Path(args.output)
 
     print("Loading training configuration...")
+
     training_config = load_json(
         config_path
     )
@@ -442,7 +459,8 @@ def main():
     )
 
     print(
-        f"Seed MIDI contains {len(seed_file_events)} musical events."
+        f"Seed MIDI contains "
+        f"{len(seed_file_events)} musical events."
     )
 
     seed_events = find_valid_seed(
@@ -457,6 +475,15 @@ def main():
         token_to_int,
     )
 
+    print(
+        f"Generation strategy: {args.strategy}"
+    )
+
+    if args.strategy == "temperature":
+        print(
+            f"Temperature: {args.temperature}"
+        )
+
     print("Generating music...")
 
     generated_tokens = generate_tokens(
@@ -465,6 +492,18 @@ def main():
         int_to_token=int_to_token,
         n_vocab=n_vocab,
         num_generate=args.num_events,
+        strategy=args.strategy,
+        temperature=args.temperature,
+        random_seed=args.random_seed,
+    )
+
+    unique_tokens = len(
+        set(generated_tokens)
+    )
+
+    print(
+        f"Unique generated tokens: "
+        f"{unique_tokens}/{len(generated_tokens)}"
     )
 
     output_path.parent.mkdir(
@@ -480,7 +519,8 @@ def main():
     )
 
     print(
-        f"Generated MIDI saved to:\n{output_path}"
+        f"Generated MIDI saved to:\n"
+        f"{output_path}"
     )
 
 
