@@ -5,7 +5,9 @@ from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
-from music21 import chord, converter, note, stream
+from music21 import chord, note, stream
+
+from preprocess import extract_notes_from_midi
 
 
 def load_json(path):
@@ -52,25 +54,6 @@ def load_vocabulary(vocabulary_path):
     return token_to_int, int_to_token
 
 
-def extract_events_from_midi(midi_path):
-    midi = converter.parse(midi_path)
-
-    events = []
-
-    for element in midi.flatten().notes:
-        if isinstance(element, note.Note):
-            events.append(str(element.pitch))
-
-        elif isinstance(element, chord.Chord):
-            chord_token = ".".join(
-                str(pitch_class)
-                for pitch_class in element.normalOrder
-            )
-            events.append(chord_token)
-
-    return events
-
-
 def find_valid_seed(
     events,
     token_to_int,
@@ -108,7 +91,11 @@ def find_valid_seed(
         f"Selected seed starting at event {start}."
     )
 
-    return seed_events
+    return (
+        seed_events,
+        start,
+        len(valid_start_positions),
+    )
 
 
 def events_to_pattern(seed_events, token_to_int):
@@ -378,6 +365,122 @@ def get_sequence_length(training_config):
     return 100
 
 
+def validate_artifacts(
+    model,
+    sequence_length,
+    n_vocab,
+):
+    if sequence_length <= 0:
+        raise ValueError(
+            "Configured sequence length must be greater than 0."
+        )
+
+    if n_vocab == 0:
+        raise ValueError(
+            "Vocabulary must contain at least one token."
+        )
+
+    input_shape = model.input_shape
+    output_shape = model.output_shape
+
+    if isinstance(input_shape, list):
+        if len(input_shape) != 1:
+            raise ValueError(
+                "Expected a model with one input tensor."
+            )
+        input_shape = input_shape[0]
+
+    if isinstance(output_shape, list):
+        if len(output_shape) != 1:
+            raise ValueError(
+                "Expected a model with one output tensor."
+            )
+        output_shape = output_shape[0]
+
+    if len(input_shape) != 3:
+        raise ValueError(
+            "Model input must have shape "
+            "(batch, sequence_length, features)."
+        )
+
+    model_sequence_length = input_shape[1]
+
+    if model_sequence_length != sequence_length:
+        raise ValueError(
+            "Model input sequence length "
+            f"({model_sequence_length}) does not match "
+            "the training configuration "
+            f"({sequence_length})."
+        )
+
+    if input_shape[2] != 1:
+        raise ValueError(
+            "Model input feature dimension "
+            f"({input_shape[2]}) does not match the "
+            "generator's scalar token representation (1)."
+        )
+
+    model_vocab_size = output_shape[-1]
+
+    if model_vocab_size != n_vocab:
+        raise ValueError(
+            "Model output vocabulary dimension "
+            f"({model_vocab_size}) does not match "
+            f"the loaded vocabulary ({n_vocab})."
+        )
+
+
+def build_output_path(args):
+    if args.output is not None:
+        return Path(args.output)
+
+    if args.strategy == "greedy":
+        filename = f"greedy_{args.num_events}.mid"
+    else:
+        filename = (
+            f"temp_{args.temperature}_"
+            f"{args.num_events}.mid"
+        )
+
+    return Path(args.output_dir) / filename
+
+
+def ensure_output_available(
+    output_path,
+    metadata_path,
+    overwrite,
+):
+    if overwrite:
+        return
+
+    existing_paths = [
+        path
+        for path in (output_path, metadata_path)
+        if path.exists()
+    ]
+
+    if existing_paths:
+        paths = ", ".join(
+            str(path)
+            for path in existing_paths
+        )
+        raise FileExistsError(
+            "Refusing to overwrite existing generation "
+            f"artifact(s): {paths}. Use --overwrite "
+            "to replace them."
+        )
+
+
+def save_generation_metadata(metadata, metadata_path):
+    with open(metadata_path, "w") as file:
+        json.dump(metadata, file, indent=2)
+
+    print(
+        f"Generation metadata saved to:\n"
+        f"{metadata_path}"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate MIDI music using a trained LSTM."
@@ -405,7 +508,17 @@ def main():
 
     parser.add_argument(
         "--output",
-        default="generated_music.mid",
+        default=None,
+    )
+
+    parser.add_argument(
+        "--output-dir",
+        default=".",
+    )
+
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
     )
 
     parser.add_argument(
@@ -445,11 +558,23 @@ def main():
             "Temperature must be greater than 0."
         )
 
+    if args.num_events <= 0:
+        raise ValueError(
+            "Number of generated events must be greater than 0."
+        )
+
     model_path = Path(args.model)
     vocabulary_path = Path(args.vocabulary)
     config_path = Path(args.config)
     seed_midi_path = Path(args.seed_midi)
-    output_path = Path(args.output)
+    output_path = build_output_path(args)
+    metadata_path = output_path.with_suffix(".json")
+
+    ensure_output_available(
+        output_path=output_path,
+        metadata_path=metadata_path,
+        overwrite=args.overwrite,
+    )
 
     print("Loading training configuration...")
 
@@ -473,6 +598,11 @@ def main():
 
     n_vocab = len(token_to_int)
 
+    if n_vocab == 0:
+        raise ValueError(
+            "Vocabulary must contain at least one token."
+        )
+
     print(
         f"Vocabulary size: {n_vocab}"
     )
@@ -481,6 +611,12 @@ def main():
 
     model = tf.keras.models.load_model(
         model_path
+    )
+
+    validate_artifacts(
+        model=model,
+        sequence_length=sequence_length,
+        n_vocab=n_vocab,
     )
 
     print(
@@ -493,7 +629,7 @@ def main():
 
     print("Parsing seed MIDI...")
 
-    seed_file_events = extract_events_from_midi(
+    seed_file_events = extract_notes_from_midi(
         seed_midi_path
     )
 
@@ -502,7 +638,11 @@ def main():
         f"{len(seed_file_events)} musical events."
     )
 
-    seed_events = find_valid_seed(
+    (
+        seed_events,
+        seed_start_index,
+        valid_seed_windows,
+    ) = find_valid_seed(
         events=seed_file_events,
         token_to_int=token_to_int,
         sequence_length=sequence_length,
@@ -555,6 +695,32 @@ def main():
     write_midi(
         generated_tokens=generated_tokens,
         output_path=output_path,
+    )
+
+    metadata = {
+        "generation_strategy": args.strategy,
+        "temperature": (
+            args.temperature
+            if args.strategy == "temperature"
+            else None
+        ),
+        "requested_generated_events": args.num_events,
+        "random_seed": args.random_seed,
+        "sequence_length": sequence_length,
+        "vocabulary_size": n_vocab,
+        "seed_midi_path": str(seed_midi_path),
+        "selected_seed_start_index": seed_start_index,
+        "valid_seed_windows": valid_seed_windows,
+        "unique_generated_source_tokens": unique_tokens,
+        "model_path": str(model_path),
+        "vocabulary_path": str(vocabulary_path),
+        "training_config_path": str(config_path),
+        "output_midi_path": str(output_path),
+    }
+
+    save_generation_metadata(
+        metadata=metadata,
+        metadata_path=metadata_path,
     )
 
     print(

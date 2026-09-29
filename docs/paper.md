@@ -63,7 +63,7 @@ This project initially keeps the same general framing so the reproduction remain
 
 This project uses MAESTRO MIDI data as the source material. MAESTRO contains piano performances with aligned audio and MIDI data. The current implementation uses the symbolic MIDI files only; it does not use the audio recordings.
 
-MAESTRO is larger than needed for early pipeline testing. During development, the training script can limit execution to a small subset of files so that parsing, sequence generation, and model training remain manageable.
+MAESTRO is larger than needed for early pipeline testing. During initial debugging, the training script was limited to small file subsets so that parsing and sequence generation remained manageable. The main completed experiment described in Section 6 uses 100 MIDI files.
 
 ### 3.2 MIDI Representation
 
@@ -82,13 +82,13 @@ midi_files = glob.glob(
 )
 ```
 
-For development, the training command defaults to the first ten discovered files through a configurable MIDI limit. The preprocessing module applies the requested limit after sorting the discovered paths:
+The training command retains a configurable MIDI limit and defaults to ten files for quick development runs. The preprocessing module applies the requested limit after sorting the discovered paths:
 
 ```python
 midi_files = midi_files[:limit]
 ```
 
-This subset is a development constraint, not a property of the full method. It allows the preprocessing pipeline to be tested before running over a larger portion of MAESTRO.
+The ten-file default is an early debugging convenience, not the scale of the main completed training experiment. The 100-file run overrides this limit.
 
 ## 4. Data Preprocessing
 
@@ -214,7 +214,7 @@ Sorting makes the mapping deterministic for a given token set. The resulting voc
 |V| = number of unique note/chord tokens
 ```
 
-During one development run, the observed vocabulary size was approximately 741 unique tokens. That value depends on which MIDI files are included and should be treated as a development-run observation, not a universal constant.
+An early debugging run produced approximately 741 unique tokens. This historical value depends on the selected subset and is not the vocabulary size of the main 100-file experiment, which is reported in Section 6.1.
 
 ### 4.4 Integer Encoding
 
@@ -310,13 +310,13 @@ to an LSTM-compatible tensor:
 (samples, 100, 1)
 ```
 
-In one development run, the prepared input shape was approximately:
+An early debugging run produced an input shape of approximately:
 
 ```text
 (42446, 100, 1)
 ```
 
-That value reflects the subset, vocabulary, and current sequence-generation behavior in that run. It should not be interpreted as a fixed property of the full dataset.
+That historical value reflects a smaller development subset. It is not a result from the main 100-file experiment and is included only to document early pipeline verification.
 
 ### 4.7 Input Normalization
 
@@ -388,15 +388,34 @@ The model is compiled with the Adam optimizer, sparse categorical cross-entropy 
 
 The training pipeline splits complete pieces into training and validation sets before constructing windows. It saves the vocabulary and training configuration alongside the model artifacts, allowing generation to reproduce the same token mapping and sequence length. Checkpointing selects `best_model.keras` according to validation loss. Early stopping, learning-rate reduction, CSV logging, and training-state backup are also implemented.
 
-This paper does not report comparative training metrics or infer musical quality from next-event accuracy. The generation experiment uses the saved trained model as a fixed component so that decoding strategies can be compared without retraining.
+### 6.1 Completed 100-File Experiment
+
+The main training experiment used 100 MIDI pieces containing 328,489 extracted musical events. The piece-level split assigned 80 pieces to training and 20 to validation. The resulting vocabulary contained 1,962 note and chord classes.
+
+| Quantity | Training | Validation |
+| --- | ---: | ---: |
+| Pieces | 80 | 20 |
+| Sequences | 249,276 | 69,213 |
+| Input shape | `(249276, 100, 1)` | `(69213, 100, 1)` |
+| Target shape | `(249276,)` | `(69213,)` |
+| Input dtype | `float32` | `float32` |
+| Target dtype | `int32` | `int32` |
+
+The model contained 3,787,434 parameters. Training requested a maximum of 50 epochs and stopped at epoch 15 through early stopping. The best checkpoint occurred at epoch 8 with a validation loss of 5.3470. At that epoch, training accuracy was approximately 2.79% and validation accuracy was approximately 2.27%. `ReduceLROnPlateau` reduced the learning rate at epochs 11 and 14.
+
+Training loss continued to decrease after epoch 8 while validation loss stopped improving. Under this experiment, that divergence is evidence of overfitting. The low exact next-token classification accuracy does not, by itself, establish that generation failed: each prediction selects among 1,962 classes, and generated musical behavior is evaluated separately from exact next-token accuracy.
+
+The run saved `checkpoints/best_model.keras`, `final_model.keras`, `vocabulary.json`, `training_config.json`, and `training_log.csv`. In the completed Colab experiment these artifacts were persisted under `/content/drive/MyDrive/lstm-music-generator/training-100/`. That Google Drive location records the experiment environment; it is not a required project path.
+
+The generation experiment uses the saved best model as a fixed component so that decoding strategies can be compared without retraining. Training performance, decoding behavior, output diversity, and musical quality remain distinct evaluation questions.
 
 ## 7. Music Generation
 
 ### 7.1 Generation Pipeline
 
-The generation pipeline in `src_colab/generate.py` loads `best_model.keras`, `vocabulary.json`, and `training_config.json`. The configuration supplies the training sequence length, while the vocabulary reconstructs both token-to-integer and integer-to-token mappings.
+The generation pipeline in `src_colab/generate.py` loads `best_model.keras`, `vocabulary.json`, and `training_config.json`. The configuration supplies the training sequence length, while the vocabulary reconstructs both token-to-integer and integer-to-token mappings. Before generation, the script verifies that the model input length matches the configuration, the model output width matches the vocabulary size, and the vocabulary is non-empty.
 
-A seed MIDI file is parsed with music21 into the same note and chord token types used during training. The generator searches the file for contiguous 100-event windows whose tokens all occur in the training vocabulary. A valid window is selected with a seeded random-number generator and converted to integer IDs. Before prediction, the current context is normalized by the vocabulary size and reshaped to `(1, 100, 1)`.
+A seed MIDI file is parsed through the same `extract_notes_from_midi()` function used by training preprocessing. Training and generation therefore share instrument partitioning, first-part selection, flattened-stream fallback, note pitch strings, and normal-order chord tokens rather than maintaining separate extraction logic. The generator searches the resulting events for contiguous 100-event windows whose tokens all occur in the training vocabulary. A valid window is selected with random seed 42 and converted to integer IDs. Before prediction, the current context is normalized by the vocabulary size and reshaped to `(1, 100, 1)`.
 
 At each generation step, the LSTM returns a probability distribution over the vocabulary. The decoding strategy selects one token from this distribution. Its integer ID is appended to the context, the oldest ID is removed, and the resulting 100-event window becomes the input to the next prediction. This cycle repeats for the requested number of events.
 
@@ -428,9 +447,19 @@ Generated tokens are converted back into music21 objects and written to a MIDI f
 
 An edge case discovered during generation was a token containing one numeric pitch class, such as `"4"`. Although it contains no dot, it belongs to the chord/pitch-class token family rather than the note-name family. The conversion logic now validates numeric components in the range 0 through 11 and reconstructs these tokens as pitch-class-based `Chord` objects instead of passing them to `music21.note.Note`.
 
+### 7.5 Generation Artifacts
+
+When no output filename is supplied, the generator derives one from the decoding condition and requested event count, such as `greedy_500.mid` or `temp_0.8_500.mid`. An optional output directory keeps storage location under caller control. Existing MIDI or metadata artifacts are not overwritten unless the caller explicitly enables overwriting.
+
+Each MIDI output has a JSON sidecar with the same base filename. It records the generation strategy, applicable temperature, requested event count, random seed, sequence length, vocabulary size, seed MIDI path, selected seed start index, number of valid seed windows, unique generated source-token count, input artifact paths, and output MIDI path. These records capture generation provenance without introducing unobserved training metrics.
+
 ## 8. Modernization of the Original Approach
 
-The generation stage adds explicit artifact loading, reproducible seed selection, selectable decoding strategies, temperature sampling, and safer token reconstruction. These changes make the behavior of the original categorical next-event approach easier to reproduce and inspect. They do not remove the underlying limits of scalar token encoding or the reduced musical representation.
+The reimplementation uses current Keras and TensorFlow APIs while preserving the original categorical next-event framing and trained-model architecture. Sparse integer targets and `sparse_categorical_crossentropy` replace one-hot target matrices. Piece-level train/validation splitting and within-piece sequence creation prevent windows from crossing composition boundaries, and random seed 42 makes data splitting and seed selection reproducible.
+
+The main training run used a Google Colab GPU and persisted its artifacts to Google Drive. Persistent best-model checkpoints, `EarlyStopping`, `ReduceLROnPlateau`, `BackupAndRestore`, and `CSVLogger` improve recoverability and experiment traceability. The generation workflow adds explicit greedy and temperature-sampling strategies, shared training/generation token extraction, compatibility validation, descriptive collision-safe output handling, and generation metadata sidecars.
+
+These changes make the original approach easier to reproduce and inspect, but they do not remove the underlying limits of scalar token encoding or the reduced musical representation. Learned embeddings, richer rhythmic representations, and different model families remain possible future work rather than implemented modernization.
 
 ## 9. Results
 
