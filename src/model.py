@@ -19,7 +19,10 @@ def create_model(sequence_length, n_vocab):
 
     model.add(Dense(n_vocab, activation="softmax"))
 
-    model.compile(loss="categorical_crossentropy", optimizer="adam")
+    model.compile(
+        loss="categorical_crossentropy",
+        optimizer="adam",
+        metrics=["accuracy"]
+    )
 
     return model
-

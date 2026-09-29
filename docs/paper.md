@@ -57,6 +57,12 @@ The original 2017 implementation demonstrated a compact symbolic music generatio
 
 This project initially keeps the same general framing so the reproduction remains understandable. Later stages can then evaluate which parts should change, including the event representation, the input encoding, the model architecture, the training procedure, and the generation strategy.
 
+### 2.5 Baseline and Modernized Implementations
+
+The repository retains two implementations for comparison. The local `src/` pipeline is the simpler educational baseline and remains closer to the original 2017 workflow. It concatenates extracted events into one flattened token sequence, creates windows without preserving composition boundaries, uses one-hot targets with categorical cross-entropy, relies on Keras's sequence-level `validation_split=0.2`, saves a simple best-model checkpoint, and generates with greedy decoding only. Its earlier duplicate sequence append was an implementation bug and has been removed; the remaining differences are intentional baseline choices.
+
+The `src_colab/` pipeline is the modernized experiment implementation used for the reported 100-file run and generation study. It preserves piece boundaries, performs a piece-level training/validation split, uses sparse integer targets with sparse categorical cross-entropy, fixes random seed 42 for reproducible splitting and seed selection, and adds persistent checkpoints, training recovery, early stopping, learning-rate scheduling, temperature sampling, and generation metadata. The two directories therefore share the same basic event vocabulary and LSTM task without being duplicate training systems.
+
 ## 3. Dataset
 
 ### 3.1 MAESTRO
