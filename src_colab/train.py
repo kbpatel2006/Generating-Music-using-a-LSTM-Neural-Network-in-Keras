@@ -12,7 +12,7 @@ from keras.callbacks import (
     ReduceLROnPlateau
 )
 
-from preprocess import get_notes
+from preprocess import get_pieces
 
 from dataset import (
     build_vocabulary,
@@ -34,7 +34,9 @@ def configure_gpu():
     )
 
     if not gpus:
-        print("WARNING: No GPU detected")
+        print(
+            "WARNING: No GPU detected"
+        )
         return
 
     print(
@@ -60,7 +62,10 @@ def save_vocabulary(
         "vocabulary.json"
     )
 
-    with open(path, "w") as file:
+    with open(
+        path,
+        "w"
+    ) as file:
         json.dump(
             pitchnames,
             file,
@@ -74,14 +79,34 @@ def save_vocabulary(
 
 def save_training_config(
     args,
-    n_vocab
+    n_vocab,
+    number_of_pieces,
+    number_of_sequences
 ):
     config = {
-        "sequence_length": args.sequence_length,
-        "vocabulary_size": n_vocab,
-        "midi_limit": args.midi_limit,
-        "batch_size": args.batch_size,
-        "epochs_requested": args.epochs
+        "sequence_length":
+            args.sequence_length,
+
+        "vocabulary_size":
+            n_vocab,
+
+        "midi_limit":
+            args.midi_limit,
+
+        "number_of_pieces":
+            number_of_pieces,
+
+        "number_of_sequences":
+            number_of_sequences,
+
+        "batch_size":
+            args.batch_size,
+
+        "epochs_requested":
+            args.epochs,
+
+        "piece_boundaries_preserved":
+            True
     }
 
     path = os.path.join(
@@ -89,7 +114,10 @@ def save_training_config(
         "training_config.json"
     )
 
-    with open(path, "w") as file:
+    with open(
+        path,
+        "w"
+    ) as file:
         json.dump(
             config,
             file,
@@ -97,7 +125,8 @@ def save_training_config(
         )
 
     print(
-        f"Saved training config to {path}"
+        f"Saved training config "
+        f"to {path}"
     )
 
 
@@ -124,23 +153,32 @@ def train(args):
         exist_ok=True
     )
 
-    print("\nLoading MIDI data...")
+    print(
+        "\nLoading MIDI data..."
+    )
 
-    notes = get_notes(
+    pieces = get_pieces(
         data_dir=args.data_dir,
         limit=args.midi_limit
     )
 
-    print("\nBuilding vocabulary...")
-
-    pitchnames, note_to_int = (
-        build_vocabulary(notes)
+    print(
+        "\nBuilding vocabulary..."
     )
 
-    n_vocab = len(pitchnames)
+    pitchnames, note_to_int = (
+        build_vocabulary(
+            pieces
+        )
+    )
+
+    n_vocab = len(
+        pitchnames
+    )
 
     print(
-        f"Vocabulary size: {n_vocab}"
+        f"Vocabulary size: "
+        f"{n_vocab}"
     )
 
     save_vocabulary(
@@ -148,26 +186,43 @@ def train(args):
         args.output_dir
     )
 
-    save_training_config(
-        args,
-        n_vocab
+    print(
+        "\nCreating sequences..."
     )
-
-    print("\nCreating sequences...")
 
     network_input, network_output = (
         create_sequences(
-            notes,
+            pieces,
             note_to_int,
-            sequence_length=args.sequence_length
+            sequence_length=
+                args.sequence_length
         )
     )
 
-    print(
-        f"Sequences: {len(network_input)}"
+    n_sequences = len(
+        network_input
     )
 
-    print("\nPreparing tensors...")
+    print(
+        f"Sequences: {n_sequences}"
+    )
+
+    if n_sequences == 0:
+        raise ValueError(
+            "No training sequences "
+            "were generated."
+        )
+
+    save_training_config(
+        args,
+        n_vocab,
+        len(pieces),
+        n_sequences
+    )
+
+    print(
+        "\nPreparing tensors..."
+    )
 
     network_input, network_output = (
         prepare_sequences(
@@ -197,10 +252,13 @@ def train(args):
         network_output.dtype
     )
 
-    print("\nBuilding model...")
+    print(
+        "\nBuilding model..."
+    )
 
     model = create_model(
-        sequence_length=args.sequence_length,
+        sequence_length=
+            args.sequence_length,
         n_vocab=n_vocab
     )
 
@@ -247,7 +305,9 @@ def train(args):
         backup_dir=backup_dir
     )
 
-    print("\nStarting training...")
+    print(
+        "\nStarting training..."
+    )
 
     history = model.fit(
         network_input,
@@ -274,14 +334,18 @@ def train(args):
         final_model_path
     )
 
-    print("\nTraining complete")
-
     print(
-        f"Best model: {best_model_path}"
+        "\nTraining complete"
     )
 
     print(
-        f"Final model: {final_model_path}"
+        f"Best model: "
+        f"{best_model_path}"
+    )
+
+    print(
+        f"Final model: "
+        f"{final_model_path}"
     )
 
     return history

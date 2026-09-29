@@ -4,9 +4,39 @@ import os
 from music21 import converter, instrument, note, chord
 
 
-def get_notes(data_dir="data/midi", limit=None):
+def extract_notes_from_midi(file):
     notes = []
 
+    midi = converter.parse(file)
+
+    parts = instrument.partitionByInstrument(midi)
+
+    if parts:
+        notes_to_parse = parts.parts[0].recurse()
+    else:
+        notes_to_parse = midi.flatten().notes
+
+    for element in notes_to_parse:
+        if isinstance(element, note.Note):
+            notes.append(
+                str(element.pitch)
+            )
+
+        elif isinstance(element, chord.Chord):
+            notes.append(
+                ".".join(
+                    str(n)
+                    for n in element.normalOrder
+                )
+            )
+
+    return notes
+
+
+def get_pieces(
+    data_dir="data/midi",
+    limit=None
+):
     search_pattern = os.path.join(
         data_dir,
         "**",
@@ -28,49 +58,59 @@ def get_notes(data_dir="data/midi", limit=None):
             f"No MIDI files found in: {data_dir}"
         )
 
-    print(f"Using {len(midi_files)} MIDI files")
+    print(
+        f"Using {len(midi_files)} MIDI files"
+    )
 
-    for index, file in enumerate(midi_files, start=1):
+    pieces = []
+
+    for index, file in enumerate(
+        midi_files,
+        start=1
+    ):
         print(
             f"[{index}/{len(midi_files)}] "
             f"{os.path.basename(file)}"
         )
 
-        midi = converter.parse(file)
+        notes = extract_notes_from_midi(
+            file
+        )
 
-        parts = instrument.partitionByInstrument(midi)
+        if notes:
+            pieces.append(notes)
 
-        if parts:
-            notes_to_parse = parts.parts[0].recurse()
-        else:
-            notes_to_parse = midi.flatten().notes
-
-        for element in notes_to_parse:
-            if isinstance(element, note.Note):
-                notes.append(
-                    str(element.pitch)
-                )
-
-            elif isinstance(element, chord.Chord):
-                notes.append(
-                    ".".join(
-                        str(n)
-                        for n in element.normalOrder
-                    )
-                )
-
-    print(
-        f"Extracted {len(notes)} musical events"
+    total_events = sum(
+        len(piece)
+        for piece in pieces
     )
 
-    return notes
+    print(
+        f"Extracted {total_events} "
+        f"musical events across "
+        f"{len(pieces)} pieces"
+    )
+
+    return pieces
 
 
 if __name__ == "__main__":
-    notes = get_notes(
+    pieces = get_pieces(
         data_dir="data/midi",
         limit=10
     )
 
-    print(notes[:20])
-    print(f"Total events: {len(notes)}")
+    print(
+        f"\nPieces loaded: "
+        f"{len(pieces)}"
+    )
+
+    if pieces:
+        print(
+            "\nFirst 20 events "
+            "from first piece:"
+        )
+
+        print(
+            pieces[0][:20]
+        )
