@@ -272,12 +272,43 @@ def generate_tokens(
 
 
 def token_to_music21(token, duration=0.5):
-    if "." in token:
-        pitch_classes = [
-            int(value)
-            for value in token.split(".")
-        ]
+    """
+    Convert one generated token back into a music21 object.
 
+    Note tokens look like:
+        C4
+        F#5
+        B-3
+
+    Chord/pitch-class tokens look like:
+        0.4.7
+        2.5.9
+        4
+
+    Numeric tokens are interpreted as pitch-class-based chord tokens.
+    """
+
+    parts = token.split(".")
+
+    is_pitch_class_token = True
+
+    pitch_classes = []
+
+    for part in parts:
+        try:
+            value = int(part)
+
+            if value < 0 or value > 11:
+                is_pitch_class_token = False
+                break
+
+            pitch_classes.append(value)
+
+        except ValueError:
+            is_pitch_class_token = False
+            break
+
+    if is_pitch_class_token:
         midi_pitches = [
             60 + pitch_class
             for pitch_class in pitch_classes
@@ -304,15 +335,23 @@ def write_midi(
 ):
     output_stream = stream.Stream()
 
-    for token in generated_tokens:
-        musical_object = token_to_music21(
-            token,
-            duration=duration,
-        )
+    for index, token in enumerate(generated_tokens):
+        try:
+            musical_object = token_to_music21(
+                token,
+                duration=duration,
+            )
 
-        output_stream.append(
-            musical_object
-        )
+            output_stream.append(
+                musical_object
+            )
+
+        except Exception as error:
+            print(
+                f"Failed to convert token at position {index}: "
+                f"{token!r}"
+            )
+            raise error
 
     output_stream.write(
         "midi",
