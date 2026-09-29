@@ -21,11 +21,3 @@ def create_model(sequence_length, n_vocab):
 
     return model
 
-if __name__ == "__main__":
-    model = create_model(
-        sequence_length=100,
-        n_vocab=741
-    )
-
-    model.summary()
-
