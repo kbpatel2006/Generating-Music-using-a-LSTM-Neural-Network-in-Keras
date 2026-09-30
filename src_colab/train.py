@@ -29,6 +29,8 @@ DEFAULT_EPOCHS = 50
 DEFAULT_BATCH_SIZE = 64
 DEFAULT_VALIDATION_FRACTION = 0.20
 DEFAULT_RANDOM_SEED = 42
+DEFAULT_INPUT_REPRESENTATION = "scalar"
+DEFAULT_EMBEDDING_DIM = 128
 
 
 def configure_gpu():
@@ -137,6 +139,21 @@ def save_training_config(
         "target_encoding":
             "sparse_integer",
 
+        "input_representation":
+            args.input_representation,
+
+        "embedding_dim": (
+            args.embedding_dim
+            if args.input_representation == "embedding"
+            else None
+        ),
+
+        "input_encoding": (
+            "normalized_scalar_token_ids"
+            if args.input_representation == "scalar"
+            else "integer_token_ids_with_learned_embedding"
+        ),
+
         "loss":
             "sparse_categorical_crossentropy"
     }
@@ -162,6 +179,11 @@ def save_training_config(
 
 
 def train(args):
+    if args.embedding_dim <= 0:
+        raise ValueError(
+            "Embedding dimension must be greater than 0."
+        )
+
     configure_gpu()
 
     os.makedirs(
@@ -321,7 +343,9 @@ def train(args):
     ) = prepare_sequences(
         train_input,
         train_output,
-        n_vocab
+        n_vocab,
+        input_representation=
+            args.input_representation,
     )
 
     print(
@@ -334,7 +358,9 @@ def train(args):
     ) = prepare_sequences(
         validation_input,
         validation_output,
-        n_vocab
+        n_vocab,
+        input_representation=
+            args.input_representation,
     )
 
     print(
@@ -384,7 +410,10 @@ def train(args):
     model = create_model(
         sequence_length=
             args.sequence_length,
-        n_vocab=n_vocab
+        n_vocab=n_vocab,
+        input_representation=
+            args.input_representation,
+        embedding_dim=args.embedding_dim,
     )
 
     model.summary()
@@ -538,6 +567,21 @@ def parse_args():
         "--seed",
         type=int,
         default=DEFAULT_RANDOM_SEED
+    )
+
+    parser.add_argument(
+        "--input-representation",
+        choices=[
+            "scalar",
+            "embedding",
+        ],
+        default=DEFAULT_INPUT_REPRESENTATION
+    )
+
+    parser.add_argument(
+        "--embedding-dim",
+        type=int,
+        default=DEFAULT_EMBEDDING_DIM
     )
 
     return parser.parse_args()

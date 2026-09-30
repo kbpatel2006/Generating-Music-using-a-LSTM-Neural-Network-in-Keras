@@ -134,18 +134,35 @@ def create_sequences(
 def prepare_sequences(
     network_input,
     network_output,
-    n_vocab
+    n_vocab,
+    input_representation="scalar",
 ):
     """
-    Convert input sequences to float32 LSTM tensors.
+    Prepare scalar or embedding-compatible input tensors.
 
     Targets remain integer class IDs so Keras can use
     sparse categorical cross-entropy instead of allocating
     a large one-hot target matrix.
     """
+    if input_representation not in {
+        "scalar",
+        "embedding",
+    }:
+        raise ValueError(
+            "Unsupported input representation: "
+            f"{input_representation!r}. Expected "
+            "'scalar' or 'embedding'."
+        )
+
+    input_dtype = (
+        np.float32
+        if input_representation == "scalar"
+        else np.int32
+    )
+
     network_input = np.asarray(
         network_input,
-        dtype=np.float32
+        dtype=input_dtype
     )
 
     network_output = np.asarray(
@@ -158,14 +175,15 @@ def prepare_sequences(
             "No sequences were generated"
         )
 
-    network_input = np.expand_dims(
-        network_input,
-        axis=-1
-    )
+    if input_representation == "scalar":
+        network_input = np.expand_dims(
+            network_input,
+            axis=-1
+        )
 
-    network_input /= float(
-        n_vocab
-    )
+        network_input /= float(
+            n_vocab
+        )
 
     return (
         network_input,

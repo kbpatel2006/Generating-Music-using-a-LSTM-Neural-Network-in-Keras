@@ -105,19 +105,42 @@ def events_to_pattern(seed_events, token_to_int):
     ]
 
 
-def prepare_model_input(pattern, n_vocab):
-    model_input = np.array(
-        pattern,
-        dtype=np.float32,
-    )
+def prepare_model_input(
+    pattern,
+    n_vocab,
+    input_representation="scalar",
+):
+    if input_representation == "scalar":
+        model_input = np.asarray(
+            pattern,
+            dtype=np.float32,
+        )
 
-    model_input = model_input.reshape(
-        1,
-        len(pattern),
-        1,
-    )
+        model_input = model_input.reshape(
+            1,
+            len(pattern),
+            1,
+        )
 
-    model_input = model_input / float(n_vocab)
+        model_input = model_input / float(n_vocab)
+
+    elif input_representation == "embedding":
+        model_input = np.asarray(
+            pattern,
+            dtype=np.int32,
+        )
+
+        model_input = model_input.reshape(
+            1,
+            len(pattern),
+        )
+
+    else:
+        raise ValueError(
+            "Unsupported input representation: "
+            f"{input_representation!r}. Expected "
+            "'scalar' or 'embedding'."
+        )
 
     return model_input
 
@@ -204,6 +227,7 @@ def generate_tokens(
     strategy="greedy",
     temperature=1.0,
     random_seed=42,
+    input_representation="scalar",
 ):
     pattern = list(seed_pattern)
 
@@ -217,6 +241,8 @@ def generate_tokens(
         model_input = prepare_model_input(
             pattern,
             n_vocab,
+            input_representation=
+                input_representation,
         )
 
         probabilities = model.predict(
@@ -369,6 +395,7 @@ def validate_artifacts(
     model,
     sequence_length,
     n_vocab,
+    input_representation="scalar",
 ):
     if sequence_length <= 0:
         raise ValueError(
@@ -378,6 +405,16 @@ def validate_artifacts(
     if n_vocab == 0:
         raise ValueError(
             "Vocabulary must contain at least one token."
+        )
+
+    if input_representation not in {
+        "scalar",
+        "embedding",
+    }:
+        raise ValueError(
+            "Unsupported input representation in training config: "
+            f"{input_representation!r}. Expected "
+            "'scalar' or 'embedding'."
         )
 
     input_shape = model.input_shape
@@ -397,10 +434,22 @@ def validate_artifacts(
             )
         output_shape = output_shape[0]
 
-    if len(input_shape) != 3:
+    expected_rank = (
+        3
+        if input_representation == "scalar"
+        else 2
+    )
+
+    if len(input_shape) != expected_rank:
+        expected_shape = (
+            "(batch, sequence_length, 1)"
+            if input_representation == "scalar"
+            else "(batch, sequence_length)"
+        )
         raise ValueError(
-            "Model input must have shape "
-            "(batch, sequence_length, features)."
+            f"Model input rank {len(input_shape)} is incompatible "
+            f"with {input_representation!r} input representation. "
+            f"Expected {expected_shape}."
         )
 
     model_sequence_length = input_shape[1]
@@ -413,7 +462,10 @@ def validate_artifacts(
             f"({sequence_length})."
         )
 
-    if input_shape[2] != 1:
+    if (
+        input_representation == "scalar"
+        and input_shape[2] != 1
+    ):
         raise ValueError(
             "Model input feature dimension "
             f"({input_shape[2]}) does not match the "
@@ -586,8 +638,21 @@ def main():
         training_config
     )
 
+    input_representation = training_config.get(
+        "input_representation",
+        "scalar"
+    )
+
+    embedding_dim = training_config.get(
+        "embedding_dim"
+    )
+
     print(
         f"Sequence length: {sequence_length}"
+    )
+
+    print(
+        f"Input representation: {input_representation}"
     )
 
     print("Loading vocabulary...")
@@ -617,6 +682,7 @@ def main():
         model=model,
         sequence_length=sequence_length,
         n_vocab=n_vocab,
+        input_representation=input_representation,
     )
 
     print(
@@ -674,6 +740,7 @@ def main():
         strategy=args.strategy,
         temperature=args.temperature,
         random_seed=args.random_seed,
+        input_representation=input_representation,
     )
 
     unique_tokens = len(
@@ -708,6 +775,7 @@ def main():
         "random_seed": args.random_seed,
         "sequence_length": sequence_length,
         "vocabulary_size": n_vocab,
+        "input_representation": input_representation,
         "seed_midi_path": str(seed_midi_path),
         "selected_seed_start_index": seed_start_index,
         "valid_seed_windows": valid_seed_windows,
@@ -717,6 +785,9 @@ def main():
         "training_config_path": str(config_path),
         "output_midi_path": str(output_path),
     }
+
+    if input_representation == "embedding":
+        metadata["embedding_dim"] = embedding_dim
 
     save_generation_metadata(
         metadata=metadata,
