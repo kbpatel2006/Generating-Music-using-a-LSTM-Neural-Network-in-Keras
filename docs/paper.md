@@ -337,8 +337,4 @@ Possible extensions include using official MAESTRO train/validation/test splits,
 
 The project evolved from a reproduction of a 2017 LSTM/Keras tutorial into an experimental analysis of input representation, training behavior, and decoding strategy. Learned embeddings substantially improved next-event prediction under the tested setup, reducing best validation loss by 0.62007 and increasing validation accuracy near the selected checkpoint. However, decoding remained a separate bottleneck: greedy generation collapsed for both models, while temperature sampling controlled the observed diversity/repetition tradeoff.
 
-The embedding model was more concentrated and repetitive at lower temperatures but reached source-token and MIDI-pattern diversity comparable to the scalar model at temperature 1.2. Better predictive metrics therefore did not imply better generation under every decoding strategy. The strongest conclusion is that representation and decoding must be assessed separately, and neither objective sequence metric justifies a claim of objectively better music.
-
-## 12. References
-
-Bibliographic completion remains a documentation limitation. No unverified citations, authors, dates, URLs, or identifiers are added here.
+The embedding model was more concentrated and repetitive at lower temperatures but reached source-token and MIDI-pattern diversity comparable to the scalar model at temperature 1.2. Better predictive metrics therefore did not imply better generation under every decoding strategy. The strongest conclusion is that representation and decoding must be assessed separately, and neither objective sequence metric justifies the claim of objectively better music.
