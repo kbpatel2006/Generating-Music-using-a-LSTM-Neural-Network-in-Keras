@@ -1,73 +1,52 @@
-# Generating Music with LSTM Neural Networks
+# Generating Music with LSTM Neural Networks: A Modern Reimplementation and Experimental Extension
 
-This repository is a research-style reimplementation and extension of the 2017 article *How to Generate Music using a LSTM Neural Network in Keras*. It reproduces the original symbolic next-event prediction approach with current TensorFlow/Keras, then develops it into a controlled experimental pipeline using MAESTRO MIDI data, reproducible preprocessing and training, and multiple autoregressive decoding strategies.
+This repository reproduces the symbolic next-event LSTM pipeline from the 2017 article *How to Generate Music using a LSTM Neural Network in Keras* and extends it into a modern experimental study. Using MAESTRO MIDI data, the project modernizes preprocessing, training, autoregressive generation, and objective MIDI-level evaluation while retaining a local original-style baseline for comparison.
 
-The repository preserves an original-style local baseline while maintaining a separate modernized Colab implementation used for the main experiments. The work examines preprocessing decisions, training behavior and overfitting, greedy decoding collapse, temperature-based sampling, and the limits of representing music as pitch and chord tokens. The detailed methodology and analysis are in [docs/paper.md](docs/paper.md).
+The completed study compares normalized scalar token IDs with 128-dimensional learned token embeddings and compares greedy decoding with temperature sampling. Learned embeddings improved next-event predictive metrics under the tested setup, but both models collapsed under greedy generation, and their diversity/repetition behavior depended strongly on temperature. These findings concern prediction and observable sequence behavior, not objective musical quality. Full methodology and analysis are in [docs/paper.md](docs/paper.md).
 
 ```text
 2017 tutorial
-    -> baseline reproduction
-    -> modernized implementation
-    -> controlled generation experiments
-    -> limitations and future research
+    |
+baseline reproduction
+    |
+modernized scalar experiment
+    |
+decoding analysis
+    |
+embedding ablation
+    |
+scalar vs. embedding comparison
 ```
 
-## Research Motivation
+## Final Findings
 
-The original LSTM approach remains useful for studying symbolic sequence generation, but several implementation and experimental choices are dated by current standards. This project investigates questions including:
+- Learned embeddings reduced best validation loss from `5.3470` to `4.72693` and increased validation accuracy near the best epoch from approximately `2.27%` to `7.06%`.
+- The comparison is representation-focused but not parameter matched: the scalar model has 3,787,434 parameters and the embedding model has 4,298,666.
+- Greedy decoding collapsed to one repeated source token for both models.
+- At lower temperatures, embedding outputs were more concentrated and repetitive than scalar outputs under the reported seed condition.
+- At `T=1.2`, source-token diversity was nearly equal: 269 unique scalar tokens and 272 unique embedding tokens out of 500 events.
+- Better next-token prediction did not automatically produce less repetitive autoregressive generation.
 
-- Can the original next-event LSTM pipeline be reproduced with current Keras and TensorFlow?
-- What changes make the experiment more reproducible and scalable?
-- How does piece-level splitting change the experimental setup?
-- What are the practical effects of replacing one-hot targets with sparse integer targets?
-- How strongly does decoding strategy affect generated sequences from a fixed model?
-- What is lost when music is represented only as note and chord pitch tokens?
-
-These questions motivate the experiments; they have not all been fully resolved.
-
-## Original vs. Modernized Implementation
+## Baseline vs. Modernized Implementation
 
 | Area | `src/` baseline | `src_colab/` modernized |
 | --- | --- | --- |
-| Purpose | Reproduce the original-style workflow | Main experimental implementation |
+| Purpose | Original-style local reproduction | Main experimental pipeline |
 | Execution | Local / VS Code | Google Colab + GPU |
 | Dataset handling | Flattened event sequence | Piece boundaries preserved |
 | Validation | Sequence-level Keras split | Piece-level train/validation split |
-| Targets | One-hot categorical vectors | Sparse integer classes |
+| Targets | One-hot vectors | Sparse integer classes |
 | Loss | `categorical_crossentropy` | `sparse_categorical_crossentropy` |
-| Checkpointing | Basic `ModelCheckpoint` | Best-model checkpoint + recovery |
-| Early stopping | No | Yes |
-| LR scheduling | No | `ReduceLROnPlateau` |
+| Input | Normalized scalar IDs | Scalar IDs or learned embeddings |
+| Checkpointing | Basic `ModelCheckpoint` | Best checkpoint + recovery |
+| Training controls | Fixed local loop | Early stopping + LR reduction |
 | Generation | Greedy only | Greedy + temperature sampling |
-| Experiment metadata | Vocabulary and training config | Training config + generation JSON sidecars |
-
-The baseline intentionally keeps flattened sequences, one-hot targets, sequence-level validation, and greedy generation. The modernized implementation is not a replacement copy; it is the experiment-oriented comparison path.
-
-## Current Model
-
-The modernized model predicts the next token from the previous 100 symbolic musical events:
-
-```text
-Input: (100, 1)
-    |
-LSTM 512, return_sequences=True
-    |
-Dropout 0.3
-    |
-LSTM 512
-    |
-Dropout 0.3
-    |
-Dense 256, ReLU
-    |
-Dense |V|, Softmax
-```
-
-For the completed 100-file experiment, `|V| = 1,962` and the model contains 3,787,434 parameters. Inputs remain normalized scalar token IDs, preserving the original categorical pipeline for comparison.
+| Metadata | Minimal training artifacts | Training config + generation sidecars |
+| Evaluation | Manual inspection | Reproducible MIDI metric script |
 
 ## Musical Representation
 
-MIDI files are parsed with `music21`. Individual notes are stored as pitch strings:
+`music21` parses MIDI into individual notes represented by pitch strings:
 
 ```text
 C4
@@ -75,48 +54,22 @@ F#5
 A3
 ```
 
-Chords are stored as dot-separated normal-order pitch classes:
+Chords are represented by dot-separated normal-order pitch classes:
 
 ```text
 0.4.7
 2.5.9
 ```
 
-This representation does **not** preserve duration, precise inter-event timing, velocity, sustain pedal, full chord register, voicing, or inversion. Generated events are reconstructed with a fixed duration. The system therefore models pitch/event sequences rather than complete expressive piano performances.
+The representation omits duration, precise rhythm and timing, velocity, sustain pedal, chord voicing, inversion, full register, and expressive timing. Reconstruction assigns a fixed duration and places pitch-class chords around a fixed register. The system is therefore a **pitch/event sequence generator**, not a full expressive piano-performance model.
 
-## Data Pipeline
+## Experimental Setup
 
-The main modernized pipeline is:
+Both 100-file experiments used the same dataset construction and training setup:
 
-```text
-MAESTRO MIDI
-    |
-music21 parsing
-    |
-note / chord tokens
-    |
-piece-level split
-    |
-integer vocabulary
-    |
-100-event sliding windows
-    |
-normalized scalar token IDs
-    |
-LSTM next-event prediction
-    |
-autoregressive generation
-    |
-MIDI reconstruction
-```
-
-In `src_colab/`, sequence windows remain within composition boundaries. Random seed 42 is used for reproducible piece splitting, seed-window selection, and controlled generation experiments.
-
-## 100-File Training Experiment
-
-| Metric | Value |
+| Setting | Value |
 | --- | ---: |
-| MIDI pieces | 100 |
+| MIDI files | 100 |
 | Musical events | 328,489 |
 | Training pieces | 80 |
 | Validation pieces | 20 |
@@ -124,101 +77,127 @@ In `src_colab/`, sequence windows remain within composition boundaries. Random s
 | Training sequences | 249,276 |
 | Validation sequences | 69,213 |
 | Sequence length | 100 |
+| Batch size | 64 |
+| Maximum epochs | 50 |
+| Split/seed value | 42 |
+
+There is no independent held-out test set. The vocabulary was built from all 100 selected pieces, including validation pieces.
+
+## Scalar Experiment
+
+```text
+integer token ID
+    -> float32
+    -> divide by vocabulary size
+    -> shape (100, 1)
+    -> LSTM 512
+    -> Dropout 0.3
+    -> LSTM 512
+    -> Dropout 0.3
+    -> Dense 256, ReLU
+    -> Softmax |V|
+```
+
+| Metric | Scalar result |
+| --- | ---: |
 | Parameters | 3,787,434 |
-| Max epochs | 50 |
-| Training stopped | Epoch 15 |
 | Best epoch | 8 |
 | Best validation loss | 5.3470 |
-| Epoch-8 train accuracy | ~2.79% |
-| Epoch-8 validation accuracy | ~2.27% |
+| Train accuracy at best epoch | ~2.79% |
+| Validation accuracy at best epoch | ~2.27% |
+| Training stopped | Epoch 15 |
 
-Training loss continued to decrease after epoch 8 while validation loss stopped improving, indicating overfitting under this configuration. `EarlyStopping` restored the best weights, and `ReduceLROnPlateau` reduced the learning rate at epochs 11 and 14.
-
-Exact next-token accuracy is a 1,962-class classification measurement. It does not directly measure musical coherence or listening quality.
-
-## Generation Study
-
-Generation is autoregressive: each predicted token becomes part of the next input window.
+## Embedding Experiment
 
 ```text
-100-event seed
-      |
-predict distribution over vocabulary
-      |
-select next token
-      |
-append prediction
-      |
-drop oldest event
-      |
-repeat
+integer token ID
+    -> Embedding(|V|, 128)
+    -> shape (100, 128)
+    -> LSTM 512
+    -> Dropout 0.3
+    -> LSTM 512
+    -> Dropout 0.3
+    -> Dense 256, ReLU
+    -> Softmax |V|
 ```
 
-### Greedy Decoding
-
-Greedy decoding always selects:
-
-```text
-argmax(P(next token))
-```
-
-The observed greedy run produced 500 events containing one unique source token, a severe repetitive collapse. This is a decoding failure mode rather than proof that the model learned nothing: repeated predictions are fed back into later contexts and can reinforce the same high-probability state.
-
-### Temperature Sampling
-
-The modernized generator can instead sample from a temperature-adjusted distribution:
-
-```text
-q_i proportional to exp(log(p_i) / T)
-```
-
-- `T < 1` sharpens the distribution.
-- `T = 1` samples from the original model distribution.
-- `T > 1` flattens the distribution.
-
-| Decoding | Unique source tokens / 500 |
+| Metric | Embedding-128 result |
 | --- | ---: |
-| Greedy | 1 |
-| Temperature 0.5 | 126 |
-| Temperature 0.8 | 182 |
-| Temperature 1.0 | 233 |
-| Temperature 1.2 | 269 |
+| Embedding dimension | 128 |
+| Embedding parameters | 251,136 |
+| Total parameters | 4,298,666 |
+| Best epoch | 7 |
+| Best validation loss | 4.72693 |
+| Validation accuracy at best epoch | ~7.06% |
+| Training stopped | Epoch 14 |
 
-Under this controlled setup, higher temperatures increased source-token diversity and generally reduced direct repetition. Increased diversity does not establish increased musical quality; no formal listening study has been conducted.
+The embedding model has greater capacity because it adds an embedding table and increases the input width of the first LSTM. This is not a perfectly parameter-matched ablation.
 
-## What Was Modernized
+## Predictive Comparison
 
-The experiment-oriented implementation adds:
+| Metric | Scalar | Embedding-128 |
+| --- | ---: | ---: |
+| Best validation loss | 5.3470 | 4.7269 |
+| Validation accuracy near best epoch | ~2.27% | ~7.06% |
+| Best epoch | 8 | 7 |
+| Total parameters | 3,787,434 | 4,298,666 |
+| Early stopping epoch | 15 | 14 |
 
-- Current TensorFlow and Keras APIs
-- MAESTRO MIDI data
-- Piece-level train/validation separation
-- Sequence construction that preserves composition boundaries
-- Sparse integer targets and sparse categorical cross-entropy
-- Fixed random seeds for reproducibility
-- Google Colab GPU training
-- Persistent Google Drive artifacts
-- Best-model checkpointing
-- Early stopping and learning-rate reduction
-- Training backup and recovery
-- CSV metric logging
-- Configurable greedy and temperature generation
-- Safer reconstruction of note, chord, and single-numeric pitch-class tokens
-- Saved training configuration and per-generation metadata
-- Collision protection for generated experiment outputs
+The learned representation substantially improved next-event predictive performance in this setup. That result does not, by itself, demonstrate better generated music.
 
-These additions turn the reproduction into a controlled study of the original workflow. They should not be interpreted as evidence that every modernization improves musical quality.
+## Generation Comparison
+
+The controlled comparison used the same seed MIDI, selected seed position 912, random seed 42, 500 generated events, model vocabulary, and generation logic.
+
+| Decoding | Scalar | Embedding-128 |
+| --- | ---: | ---: |
+| Greedy | 1 | 1 |
+| Temperature 0.5 | 126 | 25 |
+| Temperature 0.8 | 182 | 65 |
+| Temperature 1.0 | 233 | 177 |
+| Temperature 1.2 | 269 | 272 |
+
+Both models collapsed under greedy decoding. At lower temperatures, embedding output was more concentrated and repetitive. Differences narrowed as temperature increased, and embedding diversity was comparable to scalar diversity at `T=1.2`. This is an interpretation of the observed behavior, not proof of a general causal mechanism or musical superiority.
+
+## MIDI-Level Evaluation
+
+[src_colab/evaluate_generation.py](src_colab/evaluate_generation.py) parses generated MIDI and reports total events, unique MIDI patterns and ratio, adjacent repeats and rate, longest identical run, and mean absolute pitch jump in semitones. Notes use their MIDI pitch; chords use sorted MIDI-pitch tuples, with mean chord pitch used for pitch-jump calculations.
+
+### Embedding-128 Outputs
+
+| Decoding | Unique MIDI patterns | Adjacent repeats | Longest run | Mean pitch jump |
+| --- | ---: | ---: | ---: | ---: |
+| Greedy | 1 | 499 | 500 | 0.00 |
+| T=0.5 | 25 | 319 | 44 | 0.89 |
+| T=0.8 | 64 | 187 | 18 | 1.75 |
+| T=1.0 | 169 | 21 | 3 | 6.41 |
+| T=1.2 | 264 | 9 | 4 | 6.32 |
+
+### Scalar Outputs
+
+| Decoding | Unique MIDI patterns | Adjacent repeats | Longest run | Mean pitch jump |
+| --- | ---: | ---: | ---: | ---: |
+| T=0.5 | 119 | 52 | 6 | ~3.67 |
+| T=0.8 | 172 | 16 | 2 | ~8.07 |
+| T=1.0 | 221 | 3 | 2 | ~8.65 |
+| T=1.2 | 258 | 1 | 2 | ~6.45 |
+
+These metrics characterize event diversity, repetition, and pitch movement. They do not directly measure harmony, melody, long-range form, stylistic quality, listener preference, or musicality.
 
 ## Repository Structure
 
 ```text
 .
-|-- src/             # local, original-style baseline
-|-- src_colab/       # modernized experimental implementation
+|-- src/                         # local original-style baseline
+|-- src_colab/                   # main experimental pipeline
+|   |-- preprocess.py
+|   |-- dataset.py
+|   |-- model.py
+|   |-- train.py
+|   |-- generate.py
+|   `-- evaluate_generation.py  # objective MIDI metrics
 |-- docs/
-|   |-- paper.md     # research-style project paper
-|   `-- references.md
-|-- notebooks/
+|   `-- paper.md                 # detailed research-style writeup
 |-- data/
 |   `-- midi/
 |-- checkpoints/
@@ -226,19 +205,15 @@ These additions turn the reproduction into a controlled study of the original wo
 `-- requirements.txt
 ```
 
-`src/` is suitable for small local runs and comparison with the original approach. `src_colab/` contains the reproducible training and generation workflow used for the documented experiments.
-
 ## Running the Project
 
-Install the Python dependencies:
+Install dependencies:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
 ### Local Baseline
-
-Train a small one-hot baseline. Artifacts default to `checkpoints/local/`:
 
 ```bash
 python src/train.py \
@@ -248,84 +223,91 @@ python src/train.py \
   --epochs 5 \
   --batch-size 64 \
   --output-dir checkpoints/local
-```
 
-Generate with greedy decoding:
-
-```bash
 python src/generate.py \
   --model checkpoints/local/best_model.keras \
   --vocabulary checkpoints/local/vocabulary.json \
   --config checkpoints/local/training_config.json \
   --seed-midi /path/to/seed.midi \
-  --output output/local/generated_music.mid \
-  --num-events 500
+  --output output/local/generated_music.mid
 ```
 
-### Colab / Modernized Experiment
-
-Train the modernized model:
+### Scalar Colab Experiment
 
 ```bash
 python src_colab/train.py \
   --data-dir /path/to/maestro-midi \
-  --output-dir /path/to/training-output \
+  --output-dir /path/to/scalar-run \
   --midi-limit 100 \
   --sequence-length 100 \
   --epochs 50 \
   --batch-size 64 \
   --validation-fraction 0.2 \
-  --seed 42
+  --seed 42 \
+  --input-representation scalar
 ```
 
-Generate with temperature sampling:
+### Embedding-128 Experiment
+
+```bash
+python src_colab/train.py \
+  --data-dir /path/to/maestro-midi \
+  --output-dir /path/to/embedding-128-run \
+  --midi-limit 100 \
+  --sequence-length 100 \
+  --epochs 50 \
+  --batch-size 64 \
+  --validation-fraction 0.2 \
+  --seed 42 \
+  --input-representation embedding \
+  --embedding-dim 128
+```
+
+### Generation
+
+The input representation is inferred from `training_config.json`.
 
 ```bash
 python src_colab/generate.py \
-  --model /path/to/training-output/checkpoints/best_model.keras \
-  --vocabulary /path/to/training-output/vocabulary.json \
-  --config /path/to/training-output/training_config.json \
+  --model /path/to/run/checkpoints/best_model.keras \
+  --vocabulary /path/to/run/vocabulary.json \
+  --config /path/to/run/training_config.json \
   --seed-midi /path/to/seed.midi \
   --output-dir /path/to/generated-output \
   --num-events 500 \
   --strategy temperature \
-  --temperature 0.8 \
+  --temperature 1.0 \
   --random-seed 42
 ```
 
-Without an explicit `--output`, the modernized generator creates a descriptive filename such as `temp_0.8_500.mid` plus a matching JSON metadata file. It refuses to replace existing output artifacts unless `--overwrite` is provided.
+### Evaluation
 
-## Research Paper and Documentation
+```bash
+python src_colab/evaluate_generation.py \
+  generated/file1.mid \
+  generated/file2.mid \
+  --output-json results.json \
+  --output-csv results.csv
+```
 
-See [docs/paper.md](docs/paper.md) for the detailed research-style writeup, including background, preprocessing methodology, architecture, the 100-file training experiment, generation experiments, limitations, and future work.
+## Limitations
 
-The References section remains intentionally incomplete pending a separate citation-verification pass; this README does not invent bibliographic details.
+- The experiments use the first 100 sorted MAESTRO MIDI paths rather than a representative random sample.
+- The 80/20 split provides training and validation sets only; there is no independent test set.
+- The vocabulary is built from all selected pieces, including validation pieces.
+- The scalar and embedding models are not parameter matched.
+- The reported generation comparison uses one primary seed at position 912.
+- No formal listening study or statistical test across repeated training runs was conducted.
+- Diversity and repetition metrics do not measure musical quality.
+- Duration, rhythm, velocity, pedal state, voicing, inversion, and full register are not modeled.
+- MIDI reconstruction uses fixed durations and simplified chord placement.
+- TensorFlow/Keras initialization and training randomness are not fully controlled by the current seed handling.
+- No Transformer, attention-based, or other model-family comparison was completed.
 
-## Current Limitations
+## Optional Future Work
 
-- Token IDs are arbitrary categories represented as normalized scalar values.
-- Rhythm, duration, expressive timing, velocity, and pedal information are discarded.
-- Chords lose voicing, inversion, octave placement, and full register.
-- MIDI reconstruction assigns fixed event durations.
-- The main evidence comes from one 100-file model experiment.
-- Generation evaluation covers limited seeds and diversity/repetition measurements.
-- No formal human listening study has been performed.
-- Embeddings, richer event representations, Transformers, and other architectures have not yet been compared experimentally.
-
-## Next Research Directions
-
-Possible next experiments include learned token embeddings, explicit duration and rhythm events, velocity and pedal modeling, richer chord/register representations, alternative sampling controls, multiple-seed generation evaluation, larger dataset runs, and architecture comparisons. These are proposed directions, not completed features.
-
-## Technical Stack
-
-- Python
-- TensorFlow / Keras
-- NumPy
-- music21
-- MAESTRO MIDI dataset
-- Google Colab
-- NVIDIA L4 GPU for the documented 100-file experiment
+Possible extensions include official MAESTRO train/validation/test splits, multiple independent training runs, a train-only vocabulary with unknown-token handling, richer duration/rhythm/velocity/pedal events, parameter-matched representation comparisons, multiple generation seeds, human listening evaluation, and attention or Transformer baselines.
 
 ## Scope
 
-This repository is a research-style reproduction and extension of a prior implementation. It is not presented as peer-reviewed work, a published paper, or a state-of-the-art music-generation system. Its current contribution is the systematic modernization and analysis of the original workflow, including reproducible preprocessing and training changes and controlled decoding experiments.
+This repository is a completed research-style reproduction and experimental extension of a prior implementation. It is not presented as peer-reviewed work, published research, a novel architecture, or a state-of-the-art music generator. Its contribution is a documented analysis of input representation, training behavior, and decoding strategy within a shared symbolic LSTM pipeline.
